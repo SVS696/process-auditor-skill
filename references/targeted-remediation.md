@@ -1,51 +1,37 @@
-# Targeted remediation
+# Проверка исправлений
 
-Используй этот режим только после валидного defect-verdict, когда пользователь
-разрешил исправить конкретные findings. Это recheck исправления, а не новый
-поиск дефектов.
+Используй этот режим, когда есть валидное заключение о дефекте и пользователь разрешил исправить конкретные замечания. Предмет проверки — результат этих исправлений.
 
-## Машинные границы
+## Создай эпизод
 
-- `remediation-episode` принимает валидную source episode+verdict пару и
-  one-based `--finding-index` для каждого исправляемого finding.
-- Source episode и verdict автоматически входят в `evidence_refs` с SHA-256.
-  Их schema/fingerprint проверяются без повторного read-back старых mutable
-  evidence-файлов: исправление закономерно меняет их. Закрытие доказывается
-  только текущим remediation evidence.
-- `review_scope.mode=targeted_remediation` хранит fingerprint каждого выбранного
-  finding, `new_findings_policy=backlog_only`, `max_rechecks=1` и
-  `automatic_followup=false`.
-- Outcome фиксирован как `completed`, сигналы пусты, recheck имеет routine depth:
-  глубина исходного аудита не расширяет breadth targeted проверки.
-- Source episode с `review_scope` нельзя использовать для следующего
-  remediation-episode. Любой дальнейший цикл требует нового явного решения
-  пользователя, а не автоматического продолжения.
-- Targeted verdict обязан иметь `findings=[]`, `process_pattern_id=null`,
-  `scope_expansion=false`, `automatic_followup=false` и ровно один
-  `remediation_results` на каждый выбранный fingerprint.
-- Статусы результатов: `closed`, `open`, `unverified`. Все `closed` требуют
-  `KEEP/none`; любой `open` требует `EXECUTION_DEFECT` с ненулевой severity;
-  только `unverified` требует `EVIDENCE_GAP`.
-- Targeted episodes сохраняются в history, но исключаются из training cohort и
-  не создают policy candidate.
+1. Передай команде `remediation-episode` валидные исходные эпизод и заключение. Для каждого выбранного замечания укажи `--finding-index`. Нумерация начинается с 1.
+2. Команда добавляет исходную пару в `evidence_refs` с хешами SHA-256. Она сверяет схемы и контрольные суммы пары. Старые рабочие файлы могли измениться при исправлении. Команда не требует повторного чтения этих файлов. Результат исправления подтверждают текущие материалы.
+3. В `review_scope.mode=targeted_remediation` сохраняются контрольные суммы выбранных замечаний. Обязательные значения полей: `new_findings_policy=backlog_only`, `max_rechecks=1`, `automatic_followup=false`. У эпизода должен быть исход `completed`, пустой список сигналов и глубина `routine`, независимо от глубины первичного аудита.
+4. Эпизод с `review_scope` не может служить исходным для следующего `remediation-episode`. Новый цикл требует отдельного решения пользователя.
 
-## Reviewer input
+## Назначь независимую проверку
 
-Передай независимому reviewer только:
+Передай аудитору только:
 
-1. remediation episode;
-2. hash-bound source episode и verdict из `review_scope`;
-3. выбранные source findings;
-4. текущий diff/файлы фикса и regression evidence;
-5. этот контракт и verdict schema.
+1. Эпизод исправления.
+2. Исходные эпизод и заключение из `review_scope` с контрольными суммами.
+3. Выбранные замечания.
+4. Текущие изменения или исправленные файлы и материалы проверки на регрессии.
+5. Этот контракт и [схему заключения](audit-contract.md).
 
-Не проси ревьюить остальную поверхность. Reviewer не возвращает unrelated
-findings и не предлагает новый audit round. Если случайно замечено что-то вне
-scope, это не влияет на targeted verdict и может быть вынесено человеку отдельно
-без автоматического действия.
+Если аудитор заметил другую проблему, он может сообщить о ней человеку отдельно. Такое наблюдение не меняет заключение и не запускает дальнейшую работу.
 
-Draft targeted verdict включает обычные evaluator/classification/severity/
-summary/actions поля и:
+## Запиши результат и остановись
+
+Заполни обычные поля заключения, включая `evaluator`, `classification`, `severity`, `summary` и `actions`. Оставь `findings=[]` и `process_pattern_id=null`. Для каждого выбранного отпечатка укажи один результат в том же порядке и хеш текущего источника.
+
+| Состояние выбранных замечаний | Классификация и существенность |
+|---|---|
+| Все `closed` | `KEEP`, `severity=none` |
+| Есть хотя бы одно `open` | `EXECUTION_DEFECT`, `severity` отличается от `none` |
+| Нет `open`, есть хотя бы одно `unverified` | `EVIDENCE_GAP` |
+
+Пример полей черновика для закрытого замечания:
 
 ```json
 {
@@ -62,5 +48,4 @@ summary/actions поля и:
 }
 ```
 
-`seal-verdict` детерминированно добавит `scope_expansion=false` и
-`automatic_followup=false`.
+`seal-verdict` добавит `scope_expansion=false` и `automatic_followup=false`. Сохрани эпизод в истории проекта. Эти записи не участвуют в отборе предложений по изменению правил.

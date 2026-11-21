@@ -1,59 +1,36 @@
-# Prompt независимого process reviewer
+# Задание независимому аудитору
 
-Для первичного аудита подставь абсолютные пути, не добавляя предыдущие verdicts,
-proposed fixes или вывод автора. Для `review_scope.mode=targeted_remediation`
-вместо этого используй отдельный bounded prompt ниже и обязательно прочитай
-[targeted-remediation.md](targeted-remediation.md).
+Подставь абсолютные пути. В первичное задание включи только материалы ниже. Предыдущие заключения, вывод автора и предложенные исправления остаются за пределами этого контекста. Если в эпизоде указано `review_scope.mode=targeted_remediation`, используй второе задание и [правила проверки исправлений](targeted-remediation.md).
+
+## Первичный аудит
 
 ```text
-Ты независимый read-only reviewer рабочего процесса. Ты не участвовал в
-исходном прогоне и не должен изменять никакие файлы, продолжать остановленную
-работу или предлагать улучшение без доказанного дефекта.
+Проведи независимый аудит процесса. Ты не участвовал в исходном прогоне. Работай только в режиме чтения. Сохрани решение пользователя об остановке работы.
 
 Прочитай:
-- process episode: <episode.json>;
-- каждый evidence ref, закреплённый внутри episode;
-- текущий SKILL.md и только релевантные контракты скиллов из skill_chain;
-- schema verdict: <process-auditor>/references/audit-contract.md.
+1. Эпизод <episode.json> и каждый источник из его evidence_refs.
+2. Текущий SKILL.md и применимые контракты скиллов из skill_chain.
+3. Схему заключения <process-auditor>/references/audit-contract.md.
 
-Проверь причинно:
-1. Был ли процесс соразмерен реальному риску и заявленному quality floor?
-2. Где находится причина: конкретное исполнение, process policy, внешний сбой
-   или нехватка evidence?
-3. Если был user stop, подтвердили ли evidence своевременное обнаружение
-   runaway/риска? Не разрешай auto-resume при любом ответе.
-4. Есть ли основания оставить процесс без изменений? KEEP — полноценный и
-   предпочтительный verdict при отсутствии доказанного дефекта.
+Определи, соответствовали ли действия реальному риску и обязательному уровню качества. Выбери одну классификацию, допустимую для исхода эпизода. Различай ошибку исполнителя, дефект правила процесса, внешний сбой и пробел в данных. Если сведения подтверждают обоснованность процесса в завершённом эпизоде, сохрани KEEP. Изменение правила предлагай только при доказанном дефекте.
 
-Верни только один JSON-объект draft verdict без markdown fence. Не включай
-schema, episode_id, episode_fingerprint, recorded_at и fingerprint: их добавит
-детерминированный seal-verdict. Обязательные поля: evaluator, classification,
-severity, summary, process_pattern_id, findings, actions,
-manual_stop_assessment. Каждый finding ссылается на evidence_sha256 из episode.
-В `evaluator.review_depth` буквально повтори `episode.required_depth` и выполни
-соответствующую глубину проверки.
+Если работу остановил пользователь, укажи, подтверждают ли источники своевременное обнаружение риска или потерю контроля над процессом. При любом выводе право возобновить работу сохраняется за пользователем.
+
+Верни один JSON-объект с черновиком заключения без Markdown-ограждения. Заполни evaluator, classification, severity, summary, process_pattern_id, findings, actions и manual_stop_assessment. В summary укажи наблюдение и подтверждённый вывод. При нехватке сведений назови пробел. Для каждого замечания укажи evidence_sha256 из эпизода. Скопируй episode.required_depth в evaluator.review_depth и выполни проверку этой глубины.
+
+Поля schema, episode_id, episode_fingerprint, recorded_at и fingerprint добавит команда seal-verdict. Не включай их в черновик.
 ```
 
-В Codex запускай внешний Claude через `cli-agents` с профилем `claude-opus`,
-`--access read-only`, `--session new` и cwd project root. Не используй `last`:
-прошлый диалог нарушает blind/evidence-only границу. Если provider недоступен,
-используй свежего независимого subagent текущей среды и явно зафиксируй модель;
-авторский повторный проход недопустим.
+В Codex штатный профиль внешнего Claude в `cli-agents` — `claude-opus`. Для него укажи `--access read-only`, `--session new` и рабочий каталог проекта. Сессия `last` может содержать прежние выводы. Если пользователь или проект назначил иной состав независимого ревью, используй его. Если штатный провайдер недоступен, назначь нового независимого субагента текущей среды и укажи фактическую модель. Явно укажи отсутствие обязательного источника проверки, если пользователь потребовал конкретный состав. Автор прогона не подменяет независимую проверку.
 
-## Bounded prompt для targeted remediation
+## Проверка исправлений
 
 ```text
-Ты независимый read-only reviewer одного targeted remediation recheck. Не
-проводишь новый аудит продукта или процесса.
+Проверь исправления выбранных замечаний в режиме чтения. Прочитай эпизод исправления, исходные эпизод и заключение из review_scope, выбранные исходные замечания и закреплённые хешами материалы исправлений. Проверь только эти замечания.
 
-Прочитай remediation episode, source episode+verdict из review_scope, только
-выбранные source findings и hash-bound evidence исправления. Для каждого
-selected finding верни один remediation_results со status closed, open или
-unverified и текущими evidence_sha256.
+Для каждого выбранного замечания в исходном порядке верни один элемент remediation_results. Укажи finding_fingerprint, status (closed, open или unverified), summary и хеши текущих материалов в evidence_sha256.
 
-Запрещено добавлять findings, process_pattern_id, scope expansion или follow-up
-round. Несвязанные наблюдения не оценивай и не включай в verdict. Все closed ->
-KEEP/none; любой open -> EXECUTION_DEFECT с ненулевой severity; только
-unverified -> EVIDENCE_GAP. Верни только JSON draft schema 2 без полей, которые
-добавляет seal-verdict.
+Если все замечания закрыты, укажи KEEP и severity=none. Если хотя бы одно осталось открытым, укажи EXECUTION_DEFECT и severity, отличную от none. Если открытых замечаний нет, но хотя бы одно не удалось проверить, укажи EVIDENCE_GAP.
+
+Верни только черновик JSON по схеме 2. Оставь findings пустым массивом и process_pattern_id равным null. Служебные поля добавит seal-verdict. Посторонние наблюдения не включай в заключение. Заверши работу без расширения объёма и нового раунда.
 ```

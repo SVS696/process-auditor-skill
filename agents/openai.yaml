@@ -1,4 +1,4 @@
 interface:
   display_name: "Process Auditor"
-  short_description: "Независимый аудит рабочих прогонов"
-  default_prompt: "Используй $process-auditor для независимой оценки завершённого или остановленного рабочего прогона."
+  short_description: "Независимая проверка рабочего процесса"
+  default_prompt: "Примени $process-auditor. Оцени ход завершённой или остановленной работы. Подтверди вывод источниками."
